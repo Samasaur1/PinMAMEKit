@@ -1,12 +1,36 @@
 import Foundation
+import Synchronization
 import libpinmame
 
 public actor PinMAME {
-    public static let shared = PinMAME()
+    private static let instanceLock = Mutex<Bool>(false)
 
-    private init() {}
+    // Currently needed so that the type isn't automatically inherently initialized,
+    // which would mean that `deinit` runs even on failed initializers
+    private var __initialzed: Bool
+
+    public init?(sampleRate: Int32, vpmPath: String) {
+        let res: Void? = Self.instanceLock.withLock { (instanceCurrentlyExists: inout Bool) -> Void? in
+            guard !instanceCurrentlyExists else { return nil }
+            instanceCurrentlyExists = true
+        }
+        guard res != nil else { return nil }
+        __initialzed = true
+        self._configure(sampleRate: sampleRate, vpmPath: vpmPath)
+    }
+
+    deinit {
+        Self.instanceLock.withLock { instanceCurrentlyExists in
+            assert(instanceCurrentlyExists, "PinMAME.deinit should only be called when there is an existing instance, which the lock should agree with")
+            instanceCurrentlyExists = false
+        }
+    }
 
     public func configure(sampleRate: Int32, vpmPath: String) {
+        return self._configure(sampleRate: sampleRate, vpmPath: vpmPath)
+    }
+
+    private nonisolated func _configure(sampleRate: Int32, vpmPath: String) {
         let config = PinmameConfig(
             audioFormat: PINMAME_AUDIO_FORMAT_INT16,
             sampleRate: sampleRate,
