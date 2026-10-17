@@ -32,7 +32,7 @@ public protocol PinMAMEDelegate: AnyObject {
     func mechDidUpdate(mechNumber: Int32, mechInfo: Void)
     func solenoidDidUpdate(state: Void)
     func consoleDataDidUpdate(data: Data, size: Int32)
-    // func isKeyPressed(keycode: Void) -> Bool
+    func isKeyPressed(keycode: Void) -> Bool
     func log(logLevel: Int, message: String)
     func soundCommandDidFire(board: Int32, command: Int32)
 }
@@ -89,43 +89,62 @@ public actor PinMAME {
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
                 pinmame.delegate?.displayDidBecomeAvailable(displayIndex: index, displayCount: displayCount, displayLayout: displayLayout)
-                // print(#function, "display \(index) (of \(displayCount)) now available")
             },
             cb_OnDisplayUpdated: { index, displayData, displayLayout, userData in
-                // if let displayData {
-                //     guard let layout = displayLayout?.pointee else { return }
-                //     if layout.type == PINMAME_DISPLAY_TYPE_VIDEO {
-                //         // video, displayData is UInt8*
-                //     } else if (layout.type.rawValue & PINMAME_DISPLAY_TYPE_DMD.rawValue) == PINMAME_DISPLAY_TYPE_DMD.rawValue {
-                //         displayDMD(Int(index), displayData, layout)
-                //     } else {
-                //         //alphanumeric, displayData is UInt16*
-                //     }
-                // }
+                guard let userData else { return }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                pinmame.delegate?.displayDidUpdate(displayIndex: index, displayData: displayData, displayLayout: displayLayout)
             },
             cb_OnAudioAvailable: { audioInfo, userData in
-                // print(#function, audioInfo?.pointee)
-                return audioInfo?.pointee.samplesPerFrame ?? 0
+                guard let userData else { return 0 }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                return pinmame.delegate?.audioDidBecomeAvailable(audioInfo: audioInfo) ?? 0
             },
             cb_OnAudioUpdated: { buffer, samples, userData in
-                // print(#function, "got \(samples) samples")
-                return samples
+                guard let userData else { return samples }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                return pinmame.delegate?.audioDidUpdate(buffer: buffer, samples: samples) ?? samples
             },
             cb_OnMechAvailable: { mechNumber, mechInfo, userData in
-                // print(#function, "mech \(mechNumber) now available with info \(mechInfo?.pointee)")
+                guard let userData else { return }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                pinmame.delegate?.mechDidBecomeAvailable(mechNumber: mechNumber, mechInfo: mechInfo)
             },
             cb_OnMechUpdated: { mechNumber, mechInfo, userData in
-                // print(#function, "mech \(mechNumber) updated with info \(mechInfo?.pointee)")
+                guard let userData else { return }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                pinmame.delegate?.mechDidUpdate(mechNumber: mechNumber, mechInfo: mechInfo)
             },
             cb_OnSolenoidUpdated: { solenoidState, userData in
-                // print(#function, solenoidState?.pointee)
+                guard let userData else { return }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                pinmame.delegate?.solenoidDidUpdate(state: solenoidState)
             },
             cb_OnConsoleDataUpdated: { data, size, userData in
-                // print(#function, "\(size) bytes updated")
+                guard let userData else { return }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                pinmame.delegate?.consoleDataDidUpdate(data: data, size: size)
             },
             fn_IsKeyPressed: { keycode, userData in
-                // print(#function, "asking about \(keycode)")
-                return 0
+                guard let userData else { return 0 }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                return pinmame.delegate?.isKeyPressed(keycode: keycode) ?? false
             },
             cb_OnLogMessage: { logLevel, format, args, userData in
                 guard let userData else { return }
@@ -137,7 +156,11 @@ public actor PinMAME {
                 pinmame.delegate?.log(logLevel: 0, message: formattedMessage as String)
             },
             cb_OnSoundCommand: { boardNumber, command, userData in
-                // print(#function, "command \(command) issued to board \(boardNumber)")
+                guard let userData else { return }
+
+                let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+
+                pinmame.delegate?.soundCommandDidFire(board: boardNumber, command: command)
             }
         )
 
