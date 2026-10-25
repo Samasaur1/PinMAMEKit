@@ -8,7 +8,7 @@ extension PinMAMEKitTests {
         let pm: PinMAME
 
         init() throws {
-            pm = try #require(PinMAME(sampleRate: 44100, vpmPath: NSTemporaryDirectory()))
+            pm = try #require(PinMAME(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory()))
         }
 
         @Test func `can identify st:tng`() async throws {

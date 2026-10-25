@@ -8,10 +8,10 @@ import Testing
 struct PinMAMEKitTests {
     @Test
     func `get PinmameSetConfig log line`() async throws {
-        let pm = try #require(PinMAME(sampleRate: 44100, vpmPath: NSTemporaryDirectory()))
+        let pm = try #require(PinMAME(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory()))
         let del = StubDelegate()
         pm.delegate = del
-        await pm.configure(sampleRate: 44100, vpmPath: NSTemporaryDirectory())
+        await pm.configure(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory())
         #expect(del.setConfigLogLinesSeen == 1, "Delegate method was not called")
     }
 
@@ -19,33 +19,33 @@ struct PinMAMEKitTests {
         var setConfigLogLinesSeen = 0
 
         func stateDidUpdate(to newState: EmulationState) {}
-        func displayBecameAvailable(displayIndex: Int32, displayCount: Int32, displayLayout: Void) {}
-        func displayDidUpdate(displayIndex: Int32, displayData: Data, displayLayout: Void) {}
-        func audioDidBecomeAvailable(audioInfo: Void) {}
-        func audioDidUpdate(buffer: Data, samples: Int32) {}
-        func mechDidBecomeAvailable(mechNumber: Int32, mechInfo: Void) {}
-        func mechDidUpdate(mechNumber: Int32, mechInfo: Void) {}
-        func solenoidDidUpdate(state: Void) {}
-        func consoleDataDidUpdate(data: Data, size: Int32) {}
-        // func isKeyPressed(keycode: Void) -> Bool
-        func log(logLevel: Int, message: String) {
+        func displayDidBecomeAvailable(index: Int, count: Int, layout: PinMAME.DisplayLayout) {}
+        func displayDidUpdate(index: Int, frame: PinMAME.DisplayFrame) {}
+        func audioDidBecomeAvailable(info: PinMAME.AudioInfo) -> Int { info.samplesPerFrame }
+        func audioDidUpdate(samples: Int, data: UnsafeRawPointer) -> Int { samples }
+        func mechDidBecomeAvailable(number: Int, info: PinMAME.MechInfo) {}
+        func mechDidUpdate(number: Int, info: PinMAME.MechInfo) {}
+        func solenoidDidUpdate(number: Int, state: Int) {}
+        func consoleDataDidUpdate(data: UnsafeRawPointer, size: Int) {}
+        func isKeyPressed(keycode: UInt32) -> Bool { false }
+        func log(logLevel: PinMAME.LogLevel, message: String) {
             if message.contains("PinmameSetConfig()") {
                 setConfigLogLinesSeen += 1
             }
         }
-        func soundCommandDidFire(board: Int32, command: Int32) {}
+        func soundCommandDidFire(board: Int, command: Int) {}
     }
 
     @Test
     func `dont crash on multiple log line calls`() async throws {
-        let pm = try #require(PinMAME(sampleRate: 44100, vpmPath: NSTemporaryDirectory()))
+        let pm = try #require(PinMAME(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory()))
         let del = StubDelegate()
         pm.delegate = del
-        await pm.configure(sampleRate: 44100, vpmPath: NSTemporaryDirectory())
-        await pm.configure(sampleRate: 44100, vpmPath: NSTemporaryDirectory())
-        await pm.configure(sampleRate: 44100, vpmPath: NSTemporaryDirectory())
-        await pm.configure(sampleRate: 44100, vpmPath: NSTemporaryDirectory())
-        await pm.configure(sampleRate: 44100, vpmPath: NSTemporaryDirectory())
+        await pm.configure(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory())
+        await pm.configure(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory())
+        await pm.configure(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory())
+        await pm.configure(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory())
+        await pm.configure(audioFormat: .float, sampleRate: 44100, vpmPath: NSTemporaryDirectory())
         #expect(del.setConfigLogLinesSeen == 5, "Delegate method called wrong number of times")
     }
 }
