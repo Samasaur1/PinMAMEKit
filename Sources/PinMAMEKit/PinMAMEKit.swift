@@ -3,9 +3,9 @@ import Synchronization
 import libpinmame
 
 public protocol PinMAMEDelegate: AnyObject {
-    func stateDidUpdate(to newState: EmulationState)
-    func displayDidBecomeAvailable(displayIndex: Int32, displayCount: Int32, displayLayout: Void)
-    func displayDidUpdate(displayIndex: Int32, displayData: Data, displayLayout: Void)
+    func stateDidUpdate(to newState: PinMAME.EmulationState)
+    func displayDidBecomeAvailable(index: Int, count: Int, layout: PinMAME.DisplayLayout)
+    func displayDidUpdate(index: Int, frame: PinMAME.DisplayFrame)
     /*
       osd_start_audio_stream() is called at the start of the emulation to initialize
       the output stream, then osd_update_audio_stream() is called every frame to
@@ -26,18 +26,18 @@ public protocol PinMAMEDelegate: AnyObject {
       Of course that value is not necessarily an integer so at least a +/- 1
       adjustment is necessary to avoid drifting over time.
     */
-    func audioDidBecomeAvailable(audioInfo: Void) -> Int
-    func audioDidUpdate(buffer: Data, samples: Int32) -> Int
-    func mechDidBecomeAvailable(mechNumber: Int32, mechInfo: Void)
-    func mechDidUpdate(mechNumber: Int32, mechInfo: Void)
-    func solenoidDidUpdate(state: Void)
-    func consoleDataDidUpdate(data: Data, size: Int32)
-    func isKeyPressed(keycode: Void) -> Bool
-    func log(logLevel: Int, message: String)
-    func soundCommandDidFire(board: Int32, command: Int32)
+    func audioDidBecomeAvailable(info: PinMAME.AudioInfo) -> Int
+    func audioDidUpdate(samples: Int, data: UnsafeRawPointer) -> Int
+    func mechDidBecomeAvailable(number: Int, info: PinMAME.MechInfo)
+    func mechDidUpdate(number: Int, info: PinMAME.MechInfo)
+    func solenoidDidUpdate(number: Int, state: Int)
+    func consoleDataDidUpdate(data: UnsafeRawPointer, size: Int)
+    func isKeyPressed(keycode: UInt32) -> Bool
+    func log(logLevel: PinMAME.LogLevel, message: String)
+    func soundCommandDidFire(board: Int, command: Int)
 }
 
-public actor PinMAME {
+public class PinMAME {
     private static let instanceLock = Mutex<Bool>(false)
 
     // this is probably bad. does this even need to be an actor?
@@ -47,14 +47,14 @@ public actor PinMAME {
     // which would mean that `deinit` runs even on failed initializers
     private var __initialzed: Bool
 
-    public init?(sampleRate: Int32, vpmPath: String) {
+    public init?(audioFormat: AudioFormat, sampleRate: Int32, vpmPath: String) {
         let res: Void? = Self.instanceLock.withLock { (instanceCurrentlyExists: inout Bool) -> Void? in
             guard !instanceCurrentlyExists else { return nil }
             instanceCurrentlyExists = true
         }
         guard res != nil else { return nil }
         __initialzed = true
-        self._configure(sampleRate: sampleRate, vpmPath: vpmPath)
+        self._configure(audioFormat: audioFormat, sampleRate: sampleRate, vpmPath: vpmPath)
         PinmameSetUserData(Unmanaged.passUnretained(self).toOpaque())
     }
 
@@ -66,13 +66,13 @@ public actor PinMAME {
         }
     }
 
-    public func configure(sampleRate: Int32, vpmPath: String) {
-        return self._configure(sampleRate: sampleRate, vpmPath: vpmPath)
+    public func configure(audioFormat: AudioFormat, sampleRate: Int32, vpmPath: String) {
+        return self._configure(audioFormat: audioFormat, sampleRate: sampleRate, vpmPath: vpmPath)
     }
 
-    private nonisolated func _configure(sampleRate: Int32, vpmPath: String) {
+    private nonisolated func _configure(audioFormat: AudioFormat, sampleRate: Int32, vpmPath: String) {
         let config = PinmameConfig(
-            audioFormat: PINMAME_AUDIO_FORMAT_INT16,
+            audioFormat: audioFormat.libpinmame,
             sampleRate: sampleRate,
             vpmPath: vpmPath.toTuple(),
             cb_OnStateUpdated: { state, userData in
@@ -85,82 +85,101 @@ public actor PinMAME {
             },
             cb_OnDisplayAvailable: { index, displayCount, displayLayout, userData in
                 guard let userData else { return }
+                let index = Int(index)
+                let count = Int(displayCount)
+                guard let ptr = displayLayout else { return }
+                let layout = DisplayLayout(libpinmame: ptr.pointee)
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                pinmame.delegate?.displayDidBecomeAvailable(displayIndex: index, displayCount: displayCount, displayLayout: displayLayout)
+                pinmame.delegate?.displayDidBecomeAvailable(index: index, count: count, layout: layout)
             },
             cb_OnDisplayUpdated: { index, displayData, displayLayout, userData in
                 guard let userData else { return }
+                let index = Int(index)
+                guard let layoutPtr = displayLayout, let dataPtr = displayData else { return }
+                let layout = DisplayLayout(libpinmame: layoutPtr.pointee)
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                pinmame.delegate?.displayDidUpdate(displayIndex: index, displayData: displayData, displayLayout: displayLayout)
+                pinmame.delegate?.displayDidUpdate(index: index, frame: DisplayFrame(layout: layout, data: dataPtr))
             },
             cb_OnAudioAvailable: { audioInfo, userData in
-                guard let userData else { return 0 }
+                guard let ptr = audioInfo else { return -1 } // maybe assert or precondition?
+                guard let userData else { return ptr.pointee.samplesPerFrame }
+                guard let info = AudioInfo(libpinmame: ptr.pointee) else { return ptr.pointee.samplesPerFrame }
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+                guard let delegate = pinmame.delegate else { return ptr.pointee.samplesPerFrame }
 
-                return pinmame.delegate?.audioDidBecomeAvailable(audioInfo: audioInfo) ?? 0
+                return Int32(delegate.audioDidBecomeAvailable(info: info))
             },
             cb_OnAudioUpdated: { buffer, samples, userData in
                 guard let userData else { return samples }
+                guard let buffer else { return samples }
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
+                guard let delegate = pinmame.delegate else { return samples }
 
-                return pinmame.delegate?.audioDidUpdate(buffer: buffer, samples: samples) ?? samples
+                return Int32(delegate.audioDidUpdate(samples: Int(samples), data: buffer))
             },
             cb_OnMechAvailable: { mechNumber, mechInfo, userData in
                 guard let userData else { return }
+                guard let ptr = mechInfo else { return }
+                let info = MechInfo(libpinmame: ptr.pointee)
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                pinmame.delegate?.mechDidBecomeAvailable(mechNumber: mechNumber, mechInfo: mechInfo)
+                pinmame.delegate?.mechDidBecomeAvailable(number: Int(mechNumber), info: info)
             },
             cb_OnMechUpdated: { mechNumber, mechInfo, userData in
                 guard let userData else { return }
+                guard let ptr = mechInfo else { return }
+                let info = MechInfo(libpinmame: ptr.pointee)
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                pinmame.delegate?.mechDidUpdate(mechNumber: mechNumber, mechInfo: mechInfo)
+                pinmame.delegate?.mechDidUpdate(number: Int(mechNumber), info: info)
             },
             cb_OnSolenoidUpdated: { solenoidState, userData in
                 guard let userData else { return }
+                guard let ptr = solenoidState else { return }
+                let state = ptr.pointee
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                pinmame.delegate?.solenoidDidUpdate(state: solenoidState)
+                pinmame.delegate?.solenoidDidUpdate(number: Int(state.solNo), state: Int(state.state))
             },
             cb_OnConsoleDataUpdated: { data, size, userData in
                 guard let userData else { return }
+                guard let data else { return }
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                pinmame.delegate?.consoleDataDidUpdate(data: data, size: size)
+                pinmame.delegate?.consoleDataDidUpdate(data: data, size: Int(size))
             },
             fn_IsKeyPressed: { keycode, userData in
                 guard let userData else { return 0 }
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                return pinmame.delegate?.isKeyPressed(keycode: keycode) ?? false
+                return (pinmame.delegate?.isKeyPressed(keycode: keycode.rawValue) ?? false) ? 1 : 0
             },
             cb_OnLogMessage: { logLevel, format, args, userData in
                 guard let userData else { return }
-                guard let format, let args else { return }
+                guard let logLevel = LogLevel(from: logLevel), let format, let args else { return }
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                let formattedMessage = NSString(format: String(cString: format), arguments: args)
-                pinmame.delegate?.log(logLevel: 0, message: formattedMessage as String)
+                let formattedMessage = NSString(format: String(cString: format), arguments: args) as String
+                pinmame.delegate?.log(logLevel: logLevel, message: formattedMessage)
             },
             cb_OnSoundCommand: { boardNumber, command, userData in
                 guard let userData else { return }
 
                 let pinmame = Unmanaged<PinMAME>.fromOpaque(userData).takeUnretainedValue()
 
-                pinmame.delegate?.soundCommandDidFire(board: boardNumber, command: command)
+                pinmame.delegate?.soundCommandDidFire(board: Int(boardNumber), command: Int(command))
             }
         )
 
